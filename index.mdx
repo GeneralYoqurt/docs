@@ -1,0 +1,107 @@
+---
+title: "Kontrakt frontendu"
+description: "Frontend contract v1: RPC i Edge. Live na main + planned (billing, landing, AI). Tabele nie są API."
+keywords:
+  - "rpc"
+  - "edge"
+  - "supabase"
+  - "frontend"
+---
+
+**Frontend contract v1** (2026-09-17). Frontend produktu (web, studio, admin) rozmawia z self-hosted Supabase wyłącznie przez **RPC** i **Edge Functions**. Bank zadań to IP: student nie ma `SELECT` na `tasks` / `subtasks` ani LIST/SELECT na storage banku.
+
+<Warning>
+  Ten `openapi.yaml` jest ręczny. Operacje `live` są na `main`. Operacje `planned` są zatwierdzone do planowania FE — **nie** wołaj ich na `supabase-new` aż kod wejdzie. Playground jest w trybie prostym i **nie wysyła** żądań.
+</Warning>
+
+## Baza
+
+| Warstwa | URL |
+| --- | --- |
+| API | `https://supabase-new.bioteach.pl` |
+| RPC | `POST /rest/v1/rpc/{nazwa}` |
+| Edge | `/functions/v1/{nazwa}` |
+| Auth (GoTrue) | `/auth/v1` przez `supabase-js` |
+
+Stary stack `https://api.bioteach.pl` jest poza tym kontraktem.
+
+## Live (na `main`)
+
+Pięć funkcji z `supabase/functions/` plus 18 RPC produktu:
+
+| Funkcja | Metoda | Auth |
+| --- | --- | --- |
+| `health` | `GET /functions/v1/health` | tylko `apikey`; `{ ok, status: "alive", backend_version }` |
+| `bind-session-brand` | `POST` | JWT + `Origin` |
+| `enroll-in-brand` | `POST` | JWT + `Origin` |
+| `task-view` | `POST` | JWT studenta; signed media 90 s |
+| `avatar-upload` | `POST` | JWT studenta; signed upload `{uid}/avatar` |
+
+## Planned (v1, nie na stacku)
+
+| Funkcja | Warstwa | Uwaga |
+| --- | --- | --- |
+| `get_billing_offers` | RPC | Cena display, bez Stripe price id |
+| `stripe-checkout` | Edge | `{ offerId }` → `{ url }` |
+| `stripe-billing-portal` | Edge | `{}` → `{ url }`; 404 bez customera |
+| `landing-contact` | Edge | anon + Origin; 429 rate-limit A |
+| `grade-answer` | Edge | `{ subtaskId, userAnswer }`; LLM 200 queued, algorytm 200 final |
+| `grade-answer-rewrite` | Edge | zawsze kolejka, `kind: rewrite` |
+| `ai-run-status` | Edge | poll `{ kind, id }` |
+
+Poza FE: `stripe-webhook`, `pgmq`, worker, RPC enqueue / `get_ai_run` / limity w Studio.
+
+`get_entitlement` **jest live** (zawsze non-premium). Po Stripe ten sam endpoint czyta kolumny — kształt JSON bez zmian.
+
+## Co wolno wołać
+
+<Columns cols={2}>
+  <Card title="Auth i sesja" icon="key" href="/guides/auth">
+    Login bez marki, potem `bind-session-brand` z `Origin`, potem `refreshSession()`.
+  </Card>
+
+  <Card title="JWT" icon="fingerprint" href="/guides/jwt">
+    `app_metadata.kind` i `app_metadata.brand_code` wstawia Custom Access Token Hook — nie klient.
+  </Card>
+
+  <Card title="Bind z Origin" icon="link" href="/guides/bind-session-brand">
+    Jedna sesja = jedna marka. Klient nie podaje `p_brand` ani `X-Brand`.
+  </Card>
+
+  <Card title="Tylko RPC" icon="ban" href="/guides/rpc-only">
+    Zakaz `SELECT` / CRUD na tabelach. Pola tabeli istnieją wyłącznie jako JSON zwracany przez RPC.
+  </Card>
+
+  <Card title="Billing" icon="credit-card" href="/guides/billing">
+    Planned: oferty, Checkout, portal. Entitlement bez ofert w JSON.
+  </Card>
+
+  <Card title="Landing" icon="envelope" href="/guides/landing">
+    Planned: kontakt z Origin, 429 rate-limit A.
+  </Card>
+
+  <Card title="Ocena AI" icon="sparkles" href="/guides/ai">
+    Planned: LLM 200 queued + poll; algorytm sync; bez HTTP 202.
+  </Card>
+</Columns>
+
+## Klient
+
+Parametry RPC zachowują prefiks `p_`. Tożsamość i marka biorą się z JWT po bindzie.
+
+```javascript
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  "https://supabase-new.bioteach.pl",
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
+
+const { data, error } = await supabase.rpc("get_chapter_catalog");
+```
+
+Edge wołasz przez `supabase.functions.invoke` (albo `fetch` na `/functions/v1/...`) z tym samym Bearer JWT. Dla `bind-session-brand` i `enroll-in-brand` przeglądarka musi wysłać nagłówek `Origin` — nie podstawiaj marki w body.
+
+## Nazwy
+
+OpenAPI używa **nowych** nazw RPC (`get_tasks`, `accept_legal`, `enroll-in-brand`, …). Nie ma starych aliasów. Rozdział zadania idzie z `task_requirement_mappings` → `requirement_positions.chapter_id` — nie ma tabeli `task_chapter_mappings`.

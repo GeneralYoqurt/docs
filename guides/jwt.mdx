@@ -1,0 +1,31 @@
+---
+title: "JWT"
+description: "Hook wpisuje kind i brand_code. Klient ich nie podaje i nie fałszuje."
+keywords: ["jwt", "app_metadata", "hook", "session"]
+---
+
+Po `refreshSession()` access token zawiera claimy produktu. Wstawia je **Custom Access Token Hook** (`custom_access_token_hook`) na podstawie żywej wiązki sesji — nie body requestu.
+
+## Claimy produktu
+
+| Ścieżka | Student | Staff |
+|---|---|---|
+| `session_id` | UUID sesji GoTrue (wymagany przy bindzie) | to samo |
+| `app_metadata.kind` | `student` | `staff` |
+| `app_metadata.brand_code` | kod marki, np. `bio` | **brak** |
+
+Hook czyta `session_brand_bindings` i sprawdza, czy membership (student) albo `staff_brand_roles` (staff) jest nadal aktywne na aktywnej marce. Nieżywa wiązka = claimy produktu **wycinane**, auth nadal działa.
+
+<Warning>
+Nie ustawiaj `app_metadata.kind` / `brand_code` z klienta. GoTrue odrzuci albo nadpisze to hookiem. Nie wysyłaj tych pól w RPC.
+</Warning>
+
+## Jedna sesja = jedna marka
+
+Wiązka jest na `session_id`. Druga próba bindu na inną markę kończy się `409 Session is already bound`. Nowa marka wymaga nowej sesji (wylogowanie / nowe logowanie z innego Origin).
+
+## Co RPC widzi
+
+Funkcje produktu biorą `auth.uid()` i `current_brand_code()` z JWT. Student bez `kind=student` i `brand_code` dostaje `Student session required`. Staff RPC katalogu studentów nie otworzy.
+
+`get_entitlement` zawsze zwraca `{ "premium": false, "premium_access_until": null }` — Stripe jeszcze nie jest podpięty.

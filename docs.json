@@ -1,0 +1,59 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Backend API",
+  "colors": {
+    "primary": "#0F766E",
+    "light": "#2DD4BF",
+    "dark": "#115E59"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Przewodniki",
+        "groups": [
+          {
+            "group": "Start",
+            "pages": [
+              "index"
+            ]
+          },
+          {
+            "group": "Frontend",
+            "pages": [
+              "guides/auth",
+              "guides/jwt"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "href": "https://github.com/GeneralYoqurt/edu-backend",
+        "type": "github"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/GeneralYoqurt/edu-backend"
+    }
+  },
+  "description": "Frontend contract v1: RPC i Edge (live + planned) na wspólnym backendzie marek.",
+  "api": {
+    "openapi": "openapi.yaml",
+    "playground": {
+      "display": "simple"
+    },
+    "examples": {
+      "defaults": "required",
+      "languages": [
+        "javascript",
+        "bash"
+      ]
+    }
+  }
+}

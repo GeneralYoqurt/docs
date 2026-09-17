@@ -1,0 +1,68 @@
+---
+title: "Auth"
+description: "Login bez marki. Markę wiąże Edge z Origin, nie klient."
+keywords: ["auth", "login", "supabase", "gotrue"]
+---
+
+GoTrue jest jeden na cały stack (jeden JWT secret). Frontend loguje użytkownika **bez** wyboru marki, potem wiąże sesję i odświeża token.
+
+<Steps>
+  <Step title="Zaloguj przez supabase-js">
+    Użyj standardowego flow GoTrue (`signInWithPassword`, OAuth, magic link). Klient **nie** wysyła `p_brand` ani `X-Brand`.
+  </Step>
+  <Step title="Zwiąż sesję z Origin">
+    Po udanym logowaniu wywołaj Edge `bind-session-brand`. Przeglądarka dołoży `Origin` (np. `https://bioteach.pl`). Szczegóły: [Bind session brand](/guides/bind-session-brand).
+  </Step>
+  <Step title="Odśwież JWT">
+    Wywołaj `refreshSession()`. Custom Access Token Hook wpisze `app_metadata.kind` i (dla studenta) `app_metadata.brand_code` z `session_brand_bindings`.
+  </Step>
+  <Step title="Wołaj produkt">
+    Dopiero ten JWT otwiera RPC i Edge produktu. Student bez bindu dostanie błąd sesji (`Student session required`).
+  </Step>
+</Steps>
+
+```javascript
+const { data, error } = await supabase.auth.signInWithPassword({
+  email,
+  password,
+});
+if (error) throw error;
+
+const { error: bindError } = await supabase.functions.invoke(
+  "bind-session-brand",
+  { method: "POST" },
+);
+if (bindError) throw bindError;
+
+const { data: refreshed, error: refreshError } =
+  await supabase.auth.refreshSession();
+if (refreshError) throw refreshError;
+
+const kind = refreshed.session?.user.app_metadata.kind;
+const brand = refreshed.session?.user.app_metadata.brand_code;
+```
+
+## Nagłówki
+
+Każde żądanie na REST i Edge (poza `health`) niesie:
+
+| Nagłówek | Wartość |
+|---|---|
+| `apikey` | anon key frontendu |
+| `Authorization` | `Bearer <access_token>` |
+| `Content-Type` | `application/json` |
+
+Nie commituj anon key do git. Nie wołaj service role z przeglądarki.
+
+## Health
+
+`GET /functions/v1/health` nie wymaga JWT (`verify_jwt=false`). Wystarczy `apikey`. Odpowiedź: `{ "ok": true, "status": "alive", "backend_version": "…" }`.
+
+## Enrollment
+
+Jeśli bind zwróci `{ "error": "Brand access denied" }`, student może wołać Edge `enroll-in-brand` (też z `Origin`), potem ponownie `bind-session-brand` i `refreshSession()`. Enroll przy 403 zwraca `{ "error": "Brand enrollment denied" }` albo `{ "error": "Allowed Origin required" }` — nie stringi SQL.
+
+## Staff vs student
+
+- Student: `kind=student` oraz `brand_code` (żywa marka: `bio`).
+- Staff: `kind=staff`, **bez** studenckiego `brand_code`. Rola z `get_staff_role` (`admin` / `content_manager` / `null`).
